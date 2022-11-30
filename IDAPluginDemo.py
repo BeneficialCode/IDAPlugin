@@ -227,7 +227,10 @@ def instr_hook(jitter):
     insn = DecodeInstruction(ea)
     size = insn.size
     instr_flow += get_bytes(ea,size)
+    
     mnem = print_insn_mnem(ea)
+    if ea == 0x14027A2FE:
+        print("0x14027A2FE mnem: %s" % mnem)
     if mnem == 'jmp':
         op = get_operand_type(ea,0)
         if op == o_reg:
@@ -261,8 +264,8 @@ def sym_exec(machine,code):
 
     # Emulate one IR basic block
     ## Emulation of several basic blocks can be done through .emul_ir_blocks
-    #cur_addr = symb.run_at(ircfg,0,step=True)
-    cur_addr = symb.run_at(ircfg,0)
+    cur_addr = symb.run_at(ircfg,0,step=True)
+    #cur_addr = symb.run_at(ircfg,0)
     # Modified elements
     print('Modified registers:')
     symb.dump(mems=False)
@@ -283,9 +286,13 @@ def emulate_pubg_code(start_addr):
     
     myjit.vm.add_memory_page(min_addr,PAGE_READ|PAGE_WRITE,code)
     # myjit.set_trace_log(True,True,False)
+    myjit.set_trace_log(True,True,True)
+    myjit.jit.options['jit_maxline'] = 1
+    myjit.jit.options['max_exec_per_call'] = 1
     myjit.exec_cb = instr_hook
     try:
-        myjit.run(start_addr)
+        myjit.init_run(start_addr)
+        myjit.continue_run()
     except Exception as e:
         print(e)
         print("RIP: 0x%X Total instr: %d\t" % (myjit.cpu.RIP,instr_count))
