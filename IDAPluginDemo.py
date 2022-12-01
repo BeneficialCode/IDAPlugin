@@ -11,6 +11,8 @@ from miasm.analysis.binary import Container
 from miasm.core.locationdb import LocationDB
 from miasm.jitter.csts import *
 from miasm.ir.symbexec import SymbolicExecutionEngine
+from miasm.core import asmblock
+from miasm.expression.expression import *
 
 from qiling import Qiling
 from qiling.const import QL_STOP, QL_VERBOSE
@@ -22,6 +24,7 @@ from qiling.os.windows.api import *
 from qiling.os.windows.fncc import *
 
 import platform
+import graphviz
 
 # This routine populates the string table. Pay attention to separator '\x00'
 def make_string_table(string_data):
@@ -237,41 +240,52 @@ def instr_hook(jitter):
             print_target_addr(ea,jitter)
     return True
 
+def print_modified(symb:SymbolicExecutionEngine):
+    print('Modified registers:')
+    symb.dump(mems=False)
+    print('Modified memory (should be empty):')
+    symb.dump(ids=False)
 
-
-def sym_exec(machine,code):
+def sym_exec(machine: Machine,code):
     loc_db = LocationDB()
 
-    mdis = machine.dis_engine
+    dis_engine = machine.dis_engine
 
     # link the disasm engine to the bin_stream
-    mdis = mdis(code,loc_db = loc_db)
+    mdis = dis_engine(code,loc_db = loc_db)
     lifter = machine.lifter_model_call(loc_db)
     
     # Stop disassembler pos
     mdis.dont_dis = [len(code)]
 
-    # Disassemble one basic block
-    asm_block = mdis.dis_block(0)
+    # Disassemble basic block
+    # asm_block = mdis.dis_block(0)
+    
+    asm_cfg = mdis.dis_multiblock(0)
+    graph = graphviz.Source(asm_cfg.dot())
+    graph.render("可视化")
 
     # Translate ASM -> IR
     lifter_model_call = machine.lifter_model_call(mdis.loc_db)
     ircfg = lifter_model_call.new_ircfg()
-    lifter_model_call.add_asmblock_to_ircfg(asm_block,ircfg)
+    for block in asm_cfg.blocks:
+        lifter_model_call.add_asmblock_to_ircfg(block,ircfg)
 
     # Instantiate a Symbolic Execution engine with default value for registers
     symb = SymbolicExecutionEngine(lifter_model_call)
+
+    end_offset = len(code)
 
     # Emulate one IR basic block
     ## Emulation of several basic blocks can be done through .emul_ir_blocks
     cur_addr = symb.run_at(ircfg,0,step=True)
     #cur_addr = symb.run_at(ircfg,0)
-    # Modified elements
-    print('Modified registers:')
-    symb.dump(mems=False)
-    print('Modified memory (should be empty):')
-    symb.dump(ids=False)
-    rax, rbx = lifter_model_call.arch.regs.RAX, lifter_model_call.arch.regs.RBX
+    print_modified(symb)
+    # while cur_addr != ExprInt(end_offset,64):
+    #     cur_addr = symb.run_at(ircfg,cur_addr,step=True)
+    #     print_modified(symb)
+
+    
 
 def emulate_pubg_code(start_addr):
     global instr_flow
@@ -285,10 +299,10 @@ def emulate_pubg_code(start_addr):
     myjit.init_stack()
     
     myjit.vm.add_memory_page(min_addr,PAGE_READ|PAGE_WRITE,code)
-    # myjit.set_trace_log(True,True,False)
-    myjit.set_trace_log(True,True,True)
-    myjit.jit.options['jit_maxline'] = 1
-    myjit.jit.options['max_exec_per_call'] = 1
+    #myjit.set_trace_log(True,True,False)
+    #myjit.set_trace_log(True,True,True)
+    #myjit.jit.options['jit_maxline'] = 1
+    #myjit.jit.options['max_exec_per_call'] = 1
     myjit.exec_cb = instr_hook
     try:
         myjit.init_run(start_addr)
